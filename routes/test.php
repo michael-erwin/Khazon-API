@@ -10,5 +10,9 @@ $router->get('/db/reset', function () {
 
 $router->group(['prefix'=>'test'], function() use($router) {
 	$router->get('/node-balance', 'TestsController@NodeBalance');
-	$router->get('/rate-limit', 'TestsController@RateLimit');
+    $router->get('/rate-limit', 'TestsController@RateLimit');
+    $router->put('/node-balance', 'TestsController@NodeBalance');
+    $router->put('/rate-limit', 'TestsController@RateLimit');
+    $router->post('/node-balance', 'TestsController@NodeBalance');
+	$router->post('/rate-limit', 'TestsController@RateLimit');
 });
