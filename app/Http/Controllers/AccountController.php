@@ -84,7 +84,16 @@ class AccountController extends Controller
 
     public function register(Request $request)
     {
-        $type = 'reg'; // For chamber unlock type.
+        /**
+         * Disambiguation:
+         * Upline - Also known as 'Guardian'. User register and input a 'guardian' address as being someone
+         *          who referred them to join. Guardian benefits from this directly via (1) Safe level 1
+         *          chamber unlock and (2) referral points levels 1 up to 3.
+         * Mount  - A mechanism by which a newly registered user's 'Safe' is placed on top of existing 'Safe'
+         *          therebye unlocking available common chamber that is intepreted base chamber of registering
+         *          user's safe and either left or right chamber of uderneath overlapped safe.
+         */
+        $type = 'reg'; // For applicable chamber unlock type and not 'cuk' type.
         $default_role = config('general.reg_role_id');
         
         /**
@@ -255,8 +264,13 @@ class AccountController extends Controller
         else
         {
             app('db')->transaction(function() use(&$direct_upline, &$account) {
-                # Fetch the earliest incomplete chamber relative to registration date of its user.
-                $direct_upline_safe = \App\Chamber::where([['level','=',1],['completed','<',7],['user_id','!=',$account->id]])->orderBy('id')->first();
+                # Fetch the earliest incomplete chamber of level 1 that is NOT SELF UNLOCKED.
+                $direct_upline_safe = \App\Chamber::where([
+                                        ['level','=',1],
+                                        ['completed','<',7],
+                                        ['unlock_method','=','reg'],
+                                        ['user_id','!=',$account->id]
+                                    ])->orderBy('id')->first();
                 if($direct_upline_safe) 
                 {
                     $direct_upline = Account::find($direct_upline_safe->user_id);
@@ -281,7 +295,12 @@ class AccountController extends Controller
             $parent_chamber_is_level1 = true; // On level 1 block.
             $parent_chamber_location = null;
             #> Get the level 1 chamber of direct upline that was incomplete.
-            $parent_chamber = \App\Chamber::where([['user_id','=',$direct_upline->id],['level','=',1],['completed','<',7]])->first();
+            $parent_chamber = \App\Chamber::where([
+                                ['level','=',1],
+                                ['completed','<',7],
+                                ['unlock_method','=','reg'],
+                                ['user_id','=',$direct_upline->id]
+                            ])->first();
             if(!$parent_chamber) $parent_chamber_is_level1 = false;
             #> Decision based on presence of parent chamber.
             if($parent_chamber_is_level1)
@@ -290,8 +309,12 @@ class AccountController extends Controller
             }
             else
             {
-                // Get earliest incomplete chamber relative to registration date of its user.
-                $parent_chamber = \App\Chamber::where([['level','=',1],['completed','<',7]])->orderBy('id','asc')->first();
+                // Get earliest incomplete chamber relative that is NOT SELF UNLOCKED to registration date of its user.
+                $parent_chamber = \App\Chamber::where([
+                                    ['level','=',1],
+                                    ['completed','<',7],
+                                    ['unlock_method','=','reg'],
+                                    ])->orderBy('id','asc')->first();
                 $parent_chamber_location = (string) $parent_chamber->location;
                 $parent_chamber_account = \App\User::find($parent_chamber->user_id);
                 // Update user's upline to reflect change as determined by legibility.
