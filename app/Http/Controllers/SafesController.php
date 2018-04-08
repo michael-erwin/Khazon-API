@@ -32,15 +32,14 @@ class SafesController extends Controller
     {
         #> Reference variables.
         $user = app('auth')->user();
-        $chambers = \App\Chamber::where([['user_id','=',$user->id],['unlock_method','=','reg']])->orderBy('level')->get(['location','level']);
+        $chambers = \App\Chamber::where([['user_id','=',$user->id],['unlock_method','=','reg']])
+                    ->orderBy('level')->get(['location','level','unlock_method']);
         $safes = [];
         $safes_data = [];
 
         #1 - Extract safes based on chambers.
-        foreach($chambers as $chamber)
-        {
-            $safes[] = Helpers::getSafe($chamber->location);
-        }
+        foreach($chambers as $chamber) $safes[] = Helpers::getSafe($chamber->location);
+
         // Replace user_id with their own data.
         foreach($safes as $safe) $safes_data[] = $this->addUserInfo($safe);
 
