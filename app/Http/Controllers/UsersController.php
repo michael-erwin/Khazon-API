@@ -40,13 +40,23 @@ class UsersController extends Controller
 
     public function readId(Request $request, $id)
     {
-        $fields = ['id','name','email','address','upl_address','upl_type','regref_id','created_at'];
+        $fields = ['id','role_id', 'name','email','address','upl_address as mounting_address','upl_type as mounting_type',
+                    'regref_id as guardian_id','created_at'];
         $user = User::where('id', $id)->select($fields)->first();
-        if ($user->upl_type == 'adjust') {
-            $upline = User::where('id', $user->regref_id)->select(['address'])->first();
-            $user->upl_adjust_addr = $user->upl_address;
-            $user->upl_address = $upline->address;
+        
+        if (!$user) return app('api_error')->notFound();
+        if ($user->role_id == 1) return app('api_error')->notFound();
+
+        $user->guardian_address = "";
+        if($user->mounting_type != "auto" && is_numeric($user->guardian_id))
+        {
+            $guardian = User::where('id', $user->guardian_id)->select(['address'])->first();
+            if($guardian->address)
+            { $user->guardian_address = $guardian->address; }
+            else
+            { $user->guardian_address = ""; }
         }
+        $user->setHidden(['role_id']);
 
         // Response
         return response()->json($user);
@@ -54,13 +64,23 @@ class UsersController extends Controller
 
     public function readAddress(Request $request, $address)
     {
-        $fields = ['id','name','email','address','upl_address','upl_address','upl_type','regref_id','created_at'];
+        $fields = ['id','name','email','address','upl_address as mounting_address','upl_type as mounting_type',
+                    'regref_id as guardian_id','created_at'];
         $user = User::where('address', $address)->select($fields)->first();
-        if ($user->upl_type == 'adjust') {
-            $upline = User::where('id', $user->regref_id)->select(['address'])->first();
-            $user->upl_adjust_addr = $user->upl_address;
-            $user->upl_address = $upline->address;
+        
+        if (!$user) return app('api_error')->notFound();
+        if ($user->role_id == 1) return app('api_error')->notFound();
+
+        $user->guardian_address = "";
+        if($user->mounting_type != "auto" && is_numeric($user->guardian_id))
+        {
+            $guardian = User::where('id', $user->guardian_id)->select(['address'])->first();
+            if($guardian->address)
+            { $user->guardian_address = $guardian->address; }
+            else
+            { $user->guardian_address = ""; }
         }
+        $user->setHidden(['role_id']);
 
         // Response
         return response()->json($user);
