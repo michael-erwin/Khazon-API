@@ -11,7 +11,9 @@
         "firebase/php-jwt": "^5.0",
         "pragmarx/google2fa": "^2.0",
         "swiftmailer/swiftmailer": "^6.0",
-        "illuminate/redis": "5.5.*"
+        "illuminate/redis": "5.5.*",
+        "symfony/yaml": "^4.0",
+        "bugsnag/bugsnag-laravel": "2.0"
     },
     "require-dev": {
         "fzaninotto/faker": "~1.4",
