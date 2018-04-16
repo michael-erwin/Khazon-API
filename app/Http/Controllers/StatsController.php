@@ -36,14 +36,16 @@ class StatsController extends Controller
 
         # Get stats data.
         $user_count = \App\User::count();
-        $kta_payables = app('db')->table('transactions')->select(app('db')->raw('SUM(kta_amt) as total'))->where([['complete','=',1], ['type','=','withdraw']])->get();
-        $kta_paid = app('db')->table('transactions')->select(app('db')->raw('SUM(kta_amt) as total'))->where([['complete','=',1], ['type','=','dr']])->get();
+        $kta_payables = app('db')->table('transactions')->selectRaw('SUM(kta_amt) as total')
+                        ->where([['complete','<',1], ['type','=','dr']])->first();
+        $kta_paid = app('db')->table('transactions')->selectRaw('SUM(kta_amt) as total')
+                        ->where([['complete','=',1], ['type','=','dr']])->first();
 
         # Stats data output format.
         $data = [
             'total_users' => $user_count,
-            'total_payables' => $kta_payables[0]->total,
-            'total_paid' => $kta_paid[0]->total
+            'total_payables' => $kta_payables->total,
+            'total_paid' => $kta_paid->total
         ];
 
         // Response
