@@ -83,6 +83,7 @@ $app->register(App\Providers\AppServiceProvider::class);
 $app->register(App\Providers\AuthServiceProvider::class);
 $app->register(App\Providers\EventServiceProvider::class);
 $app->register(Illuminate\Redis\RedisServiceProvider::class);
+// $app->register(Bugsnag\BugsnagLaravel\BugsnagServiceProvider::class);
 
 /*
 |--------------------------------------------------------------------------
@@ -99,7 +100,7 @@ $app->router->group([
     'namespace' => 'App\Http\Controllers',
 ], function ($router) {
     require __DIR__.'/../routes/api.php';
-    require __DIR__.'/../routes/test.php';
+    require __DIR__.'/../routes/utils.php';
 });
 
 /*
@@ -112,5 +113,26 @@ $app->router->group([
 |
 */
 $app->configure('general');
+
+/*
+|--------------------------------------------------------------------------
+| Custom The Application Monolog
+|--------------------------------------------------------------------------
+|
+| Configuration daily monolog.
+|
+*/
+
+$app->configureMonologUsing(function (\Monolog\Logger $logger) {
+    $maxFiles = env('APP_MAX_LOG_FILE');
+    $filename = storage_path('logs/lumen.log');
+    $handler = new \Monolog\Handler\RotatingFileHandler($filename, $maxFiles);
+    $handler->setFilenameFormat('{date}-{filename}', 'Y-m-d');
+    $formatter = new \Monolog\Formatter\LineFormatter(null, null, true, true);
+    $handler->setFormatter($formatter);
+    $logger->pushHandler($handler);
+
+    return $logger;
+});
 
 return $app;
