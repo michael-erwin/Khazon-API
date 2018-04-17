@@ -8,6 +8,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Laravel\Lumen\Exceptions\Handler as ExceptionHandler;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+// use Bugsnag\BugsnagLaravel\Facades\Bugsnag;
 
 class Handler extends ExceptionHandler
 {
@@ -39,6 +40,7 @@ class Handler extends ExceptionHandler
                 break;
             default:
                 parent::report($e);
+                // Bugsnag::notifyException(new RuntimeException("Test error"));                
         }
     }
 
@@ -61,6 +63,9 @@ class Handler extends ExceptionHandler
             case $e instanceof \Firebase\JWT\SignatureInvalidException:
                 return app('api_error')->unauthorized(null,"Invalid token signature.");
                 break;
+            // case $e instanceof \Illuminate\Database\QueryException:
+            //     return app('api_error')->serverError(null,"Failed to update database.");
+            //     break;
             default:
                 return (env('APP_ENV') == 'local')? parent::render($request, $e) : app('api_error')->badRequest();
         }
