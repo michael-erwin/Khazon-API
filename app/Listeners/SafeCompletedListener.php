@@ -25,10 +25,10 @@ class SafeCompletedListener
     public function handle(\App\Events\SafeCompletedEvent $chamber)
     {
         #> Reference variable.
-        $id = $chamber->data->id;
-        $level = $chamber->data->level;
-        $location = $chamber->data->location;
-        $user_id = $chamber->data->user_id;
+        $id = $chamber->id;
+        $level = explode('.', $chamber->location)[0];
+        $location = $chamber->location;
+        $user_id = $chamber->user_id;
 
         if($level < 7) // Restrict level up to 7 only.
         {
@@ -58,59 +58,78 @@ class SafeCompletedListener
 
             #> Initialize reference values.
             $parent_chamber = null; // Chamber for next level where new unlock will be made on its safe.
-            $parent_chamber_location = null;
             $next_level = $level + 1;
 
             #2.1 - Determine suitable parent safe found in the next level.
-            $parent_chamber = \App\Chamber::where([['level','=',$next_level],['completed','<',7]])->orderBy('id','asc')->first();
+            $parent_chamber = \App\Chamber::where([
+                    ['level','=',$next_level],
+                    ['completed','<',7]
+                ])->orderBy('id','asc')->first();
 
             #2.2a - Attach to top of base chamber.
             if($parent_chamber)
             {
-                $parent_chamber_location = $parent_chamber->location;
-                $parent_safe = Helpers::getSafeMap($parent_chamber->location);
+                app('log')->info(
+                    "Parent chamber found, location={$parent_chamber->location}, completed={$parent_chamber->completed}".
+                    " for subject (location={$location}, user_id={$user_id})"
+                );
 
+                $parent_safe = Helpers::getSafeMap($parent_chamber->location);
+                
                 #2.2a.1 - Create next level chamber placement for the completed user safe.
                 #> Reference variables.
                 $chamber_unlocked_location = null;
-                $safe_position = null;
 
                 #2.2a.1.1 - Get the location and position of first empty chamber in parent safe.
                 foreach($parent_safe as $position => $chamber)
                 {
-                    if($chamber['data'] === null)
+                    if(!$chamber['data'])
                     {
-                        if($chamber_unlocked_location === null)
+                        if(!$chamber_unlocked_location)
                         {
                             $chamber_unlocked_location = $chamber['location'];
-                            $safe_position = $position;
                             break;
                         }
                     }
                 }
 
-                #2.2a.1.2 - Create new next level chamber for a completed safe.
-                $chamber_new = new \App\Chamber;
-                $chamber_new->location = $chamber_unlocked_location;
-                $chamber_new->level = $next_level;
-                $chamber_new->user_id = $user_id;
-                $chamber_new->unlock_method = 'reg';
-                $chamber_new->completed = 1;
-                $chamber_new->save();
+                if($chamber_unlocked_location)
+                {
+                    #2.2a.1.2 - Create new next level chamber for a completed safe.
+                    $chamber_new_lvl = new \App\Chamber;
+                    $chamber_new_lvl->location = $chamber_unlocked_location;
+                    $chamber_new_lvl->level = $next_level;
+                    $chamber_new_lvl->user_id = $user_id;
+                    $chamber_new_lvl->unlock_method = 'reg';
+                    $chamber_new_lvl->completed = 1;
+                    $chamber_new_lvl->save();
 
-                #2.2a.1.3 - Emit a chamber creation event.
-                event(new \App\Events\ChamberCreatedEvent($chamber_unlocked_location,$safe_position));
+                    #2.2a.1.3 - Emit a chamber creation event.
+                    event(new \App\Events\ChamberCreatedEvent($chamber_unlocked_location,$user_id));
+                }
+                else
+                {
+                    app('log')->warn(
+                        "Assembled safe not empty for parent chamber on location={$parent_chamber->location}, 
+                        completed={$parent_chamber->completed}"
+                    );
+                }
             }
             #2.2b - Create genesis entry in next level.
             else
             {
-                $chamber_new = new \App\Chamber;
-                $chamber_new->location = $next_level.'.1.1';
-                $chamber_new->level = $next_level;
-                $chamber_new->user_id = $user_id;
-                $chamber_new->unlock_method = 'reg';
-                $chamber_new->completed = 1;
-                $chamber_new->save();
+                $chamber_new_lvl = new \App\Chamber;
+                $chamber_new_lvl->location = $next_level.'.1.1';
+                $chamber_new_lvl->level = $next_level;
+                $chamber_new_lvl->user_id = $user_id;
+                $chamber_new_lvl->unlock_method = 'reg';
+                $chamber_new_lvl->completed = 1;
+                $chamber_new_lvl->save();
+
+                # Log the event.
+                app('log')->info(
+                    "Chamber created, location={$chamber_new_lvl->location}, user_id={$user_id}"
+                );
             }
         }
     }

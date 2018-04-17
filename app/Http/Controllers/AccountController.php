@@ -85,26 +85,14 @@ class AccountController extends Controller
     public function register(Request $request)
     {
         /**
-         * Disambiguation:
-         * Upline - Also known as 'Guardian'. User register and input a 'guardian' address as being someone
-         *          who referred them to join. Guardian benefits from this directly via (1) Safe level 1
-         *          chamber unlock and (2) referral points levels 1 up to 3.
-         * Mount  - A mechanism by which a newly registered user's 'Safe' is placed on top of existing 'Safe'
-         *          therebye unlocking available common chamber that is intepreted base chamber of registering
-         *          user's safe and either left or right chamber of uderneath overlapped safe.
-         */
-        $type = 'reg'; // For applicable chamber unlock type and not 'cuk' type.
-        $default_role = config('general.reg_role_id');
+        | 1 - Validate inputs
+        +---------------------------------------------------------------------------------------------------------------*/
         
-        /**
-         1 - Input Validation
-        */
-
         // Basic input validation rules.
         $errors = [];
         $inputs = $request->only(['name', 'email', 'password', 'address', 'upl_address', 'cuk']);
         $inputs['address'] = strtolower($inputs['address']);
-        $rules = [
+        $input_rules = [
             'name' => 'required|min:2',
             'email' => 'required|email|unique:users',
             'password' => 'required|min:6',
@@ -113,13 +101,14 @@ class AccountController extends Controller
         ];
 
         #1.1 - Add upline address validation if present.
-        if(isset($inputs['upl_address']) && !empty($inputs['upl_address'])) {
+        if(isset($inputs['upl_address']) && !empty($inputs['upl_address']))
+        {
             $inputs['upl_address'] = strtolower($inputs['upl_address']);
-            $rules['upl_address'] = 'regex:/^0x[a-z0-9]{40}$/|exists:users,address';
+            $input_rules['upl_address'] = 'regex:/^0x[a-z0-9]{40}$/|exists:users,address';
         }
 
         #1.2 - Run validation basic.
-        $validation = app('validator')->make($inputs, $rules, [
+        $validation = app('validator')->make($inputs, $input_rules, [
             'email.unique' => 'Not available',
             'email.email' => 'Format is invalid',
             'address.regex' => 'Format is invalid',
@@ -131,213 +120,247 @@ class AccountController extends Controller
 
         #1.3 - Add CUK validation.
         $cuk_hash = md5($request->input('cuk'));
-        $cuk = Cuk::where('hash',$cuk_hash)->first();
-        if(!$cuk)
+        $cuk_record = Cuk::where('hash',$cuk_hash)->first();
+        if(!$cuk_record)
         { $errors['cuk'][] = 'Incorrect'; }
-        elseif($cuk->user_id !== null)
+        elseif($cuk_record->user_id !== null)
         { $errors['cuk'][] = 'Already used'; }
 
         #1.3 - Return validation errors if present.
         if(count($errors) > 0) return app('api_error')->invalidInput($errors);
 
         /**
-         2 - Register User
-        */
+        | 2 - Execute user's registration
+        +---------------------------------------------------------------------------------------------------------------*/
+        
+        $success = false;
+        $chamber_created = null;
 
-        #2.1 - Get upline id for registration referral id.
-        $upline_entry = null;
-        $account = null;
-        if(isset($inputs['upl_address']) && !empty($inputs['upl_address']))
-        {
-            $upline_entry = \App\User::where('address', $inputs['upl_address'])->first();
-            $inputs['regref_id'] = (int) $upline_entry->id;
-        }
+        app('db')->transaction(function() use($request,&$inputs,&$cuk_record,&$success,&$chamber_created) {
+            $type = 'reg'; // For applicable chamber unlock type and not 'cuk' type.
+            $default_role = config('general.reg_role_id');
 
-        app('db')->transaction(function() use($request, $inputs, &$cuk, &$account, $default_role) {
-            #2.2 - Save user data.
+            #> Initialize input values.
+            $inputs['upl_type'] = 'static'; // Default.
             $inputs['password'] = app('hash')->make($request->input('password'));
             $inputs['role_id'] = $default_role;
-            $account = new Account($inputs);
-            $account->save();
 
-            #2.3 - Update CUK status as used by the user.
-            $cuk->user_id = $account->id;
-            $cuk->save();
-        });
+            #> Reference database objects for determining missing account inputs.
+            $upline_account_record = null;
+            $upline_chamber_record = null;
+            $regusr_account_record = null;
 
-        #2.4 - Determine registering user's direct upline.
-        #> Reference variables
-        $direct_upline = null;
-        #2.4a - With upline field specified in form.
-        if(isset($inputs['upl_address']) && !empty($inputs['upl_address']))
-        {
-            #2.4a.1 - Get direct upline.
-            #> Reference variable.
-            $direct_upline = $upline_entry; // Already saved from above if validation passed.
+            #> Reference for referral system.
+            $guardian_account_record = null;
 
-            #2.4a.2 - Run applicable referral earnings.
-            if($direct_upline)
+            /**
+            | 2.1 - Create `users` table entry
+            +-----------------------------------------------------------------------------------------------------------*/
+            /*  Finalize table $inputs.
+                +---------------------------------------------------------------------------------------------+
+                | upl_address - Will be the field to tell the safe placement of registering user's chamber.   |
+                | upl_type    - Can be 'auto' (no upl_address specified), 'static' (upl_address specified and |
+                |               acquired) or 'adjust' (upl_address specified but changed because it's full).  |
+                | regref_id   - Record ID of upl_address specified that will benefit in future referrals.     |
+                +---------------------------------------------------------------------------------------------+
+            */
+            # 2.1.a - If the upl_address field was specified.
+            if(isset($inputs['upl_address']) && !empty($inputs['upl_address']))
             {
-                app('db')->transaction(function() use($direct_upline, $account) {
-                    #2.3a.2.1 - Referral & Earnings
-                    $earning_ref = config('general.earning_ref');
-
-                    // Level 1.
-                    $ref_1 = $direct_upline;
-                    # Referral entry
-                    $ref_1_entry = new \App\Referral;
-                    $ref_1_entry->user_id = $ref_1->id;
-                    $ref_1_entry->user_reg_id = $account->id;
-                    $ref_1_entry->type = 'ref_1';
-                    $ref_1_entry->save();
-
-                    # Earnings entry
-                    $ref_1_earning = new \App\Transaction;
-                    $ref_1_earning->user_id = $ref_1->id;
-                    $ref_1_earning->kta_amt = $earning_ref[1];
-                    $ref_1_earning->code = 'ref_1';
-                    $ref_1_earning->ref = $ref_1_entry->id;
-                    $ref_1_earning->type = 'cr';
-                    $ref_1_earning->complete = 1;
-                    $ref_1_earning->save();
-
-                    # Guardian user's balance
-                    $user1 = \App\User::where('id', $ref_1->id)->select(['id','balance'])->first();
-                    $user1->balance += $earning_ref[1];
-                    $user1->save();
-
-                    $ref_2 = $ref_1->reg_ref_parent();
-                    if($ref_2)
-                    {
-                        // Level 2 - Referral entry.
-                        $ref_2_entry = new \App\Referral;
-                        $ref_2_entry->user_id = $ref_2->id;
-                        $ref_2_entry->user_reg_id = $account->id;
-                        $ref_2_entry->type = 'ref_2';
-                        $ref_2_entry->save();
-
-                        // Level 2 - Earnings
-                        $ref_2_earning = new \App\Transaction;
-                        $ref_2_earning->user_id = $ref_2->id;
-                        $ref_2_earning->kta_amt = $earning_ref[2];
-                        $ref_2_earning->code = 'ref_2';
-                        $ref_2_earning->ref = $ref_1_entry->id;
-                        $ref_2_earning->type = 'cr';
-                        $ref_2_earning->complete = 1;
-                        $ref_2_earning->save();
-
-                        # Guardian user's balance
-                        $user2 = \App\User::where('id', $ref_2->id)->select(['id','balance'])->first();
-                        $user2->balance += $earning_ref[2];
-                        $user2->save();
-
-                        $ref_3 = $ref_2->reg_ref_parent();
-                        if($ref_3)
-                        {
-                            // Level 3 - Referral entry.
-                            $ref_3_entry = new \App\Referral;
-                            $ref_3_entry->user_id = $ref_3->id;
-                            $ref_3_entry->user_reg_id = $account->id;
-                            $ref_3_entry->type = 'ref_3';
-                            $ref_3_entry->save();
-
-                            // Level 3 - Earnings
-                            $ref_3_earning = new \App\Transaction;
-                            $ref_3_earning->user_id = $ref_3->id;
-                            $ref_3_earning->kta_amt = $earning_ref[3];
-                            $ref_3_earning->code = 'ref_3';
-                            $ref_3_earning->ref = $ref_1_entry->id;
-                            $ref_3_earning->type = 'cr';
-                            $ref_3_earning->complete = 1;
-                            $ref_3_earning->save();
-
-                            # Guardian user's balance
-                            $user3 = \App\User::where('id', $ref_3->id)->select(['id','balance'])->first();
-                            $user3->balance += $earning_ref[3];
-                            $user3->save();
-                        }
-                    }
-                });
-            }
-        }
-        #2.3b - Without upline field specified in form.
-        else
-        {
-            app('db')->transaction(function() use(&$direct_upline, &$account) {
-                # Fetch the earliest incomplete chamber of level 1 that is NOT SELF UNLOCKED.
-                $direct_upline_safe = \App\Chamber::where([
-                                        ['level','=',1],
-                                        ['completed','<',7],
-                                        ['unlock_method','=','reg'],
-                                        ['user_id','!=',$account->id]
-                                    ])->orderBy('id')->first();
-                if($direct_upline_safe) 
+                $upline_account_record = $guardian_account_record = 
+                                         \App\User::where('address', $inputs['upl_address'])->first();
+                $inputs['regref_id'] = $guardian_account_record->id;
+                # Fetch upline's chamber record that is level 1.
+                $upline_chamber_record = \App\Chamber::where([
+                        ['level','=',1],
+                        ['completed','<',7],
+                        ['unlock_method','=','reg'],
+                        ['user_id','=',$upline_account_record->id]
+                    ])->first();
+                # If upline's level 1 Chamber has Safe already full, get earliest level 1 Chamber instead.
+                if(!$upline_chamber_record)
                 {
-                    $direct_upline = Account::find($direct_upline_safe->user_id);
-                    // Update account upline address.
-                    $account->upl_address = $direct_upline->address;
-                    $account->upl_type = 'auto';
-                    $account->save();
+                    $upline_chamber_record = \App\Chamber::where([
+                            ['level','=',1],
+                            ['completed','<',7],
+                            ['unlock_method','=','reg'],
+                        ])->orderBy('id','asc')->first();
+                    $inputs['upl_type'] = 'adjust';
                 }
-            });
-        }
-
-        /**
-         3 - Create User's Safe (Chamber entry)
-        */
-        #3a - Make chamber entry based on direct upline.
-        if($direct_upline)
-        {
-            #3a.1 - Determine the location of chamber to be created.
-            
-            #3a.1.1 - Get chamber location of parent chamber.
-            #> Reference variables.
-            $parent_chamber_is_level1 = true; // On level 1 block.
-            $parent_chamber_location = null;
-            #> Get the level 1 chamber of direct upline that was incomplete.
-            $parent_chamber = \App\Chamber::where([
-                                ['level','=',1],
-                                ['completed','<',7],
-                                ['unlock_method','=','reg'],
-                                ['user_id','=',$direct_upline->id]
-                            ])->first();
-            if(!$parent_chamber) $parent_chamber_is_level1 = false;
-            #> Decision based on presence of parent chamber.
-            if($parent_chamber_is_level1)
-            {
-                $parent_chamber_location = (string) $parent_chamber->location;
             }
+            # 2.1.b - If NO upl_address field specified.
             else
             {
-                // Get earliest incomplete chamber relative that is NOT SELF UNLOCKED to registration date of its user.
-                $parent_chamber = \App\Chamber::where([
-                                    ['level','=',1],
-                                    ['completed','<',7],
-                                    ['unlock_method','=','reg'],
-                                    ])->orderBy('id','asc')->first();
-                $parent_chamber_location = (string) $parent_chamber->location;
-                $parent_chamber_account = \App\User::find($parent_chamber->user_id);
-                // Update user's upline to reflect change as determined by legibility.
-                if($parent_chamber_location)
+                # Fetch the earliest incomplete chamber at level 1 that is NOT SELF UNLOCKED.
+                $upline_chamber_record = \App\Chamber::where([
+                        ['level','=',1],
+                        ['completed','<',7],
+                        ['unlock_method','=','reg']
+                    ])->orderBy('id')->first();
+                # If earlier chamber exist.
+                if($upline_chamber_record)
                 {
-                    $account->upl_address = $parent_chamber_account->address;
-                    $account->upl_type = 'adjust';
-                    $account->save();
+                    # Set the upline database object.
+                    $upline_account_record = Account::find($upline_chamber_record->user_id);
+                    $inputs['upl_address'] = $upline_account_record->address;
+                    $inputs['upl_type'] = 'auto';
+                }
+            }
+            #> Insert user's database record.
+            $regusr_account_record = new Account($inputs);
+            $regusr_account_record->save();
+
+            /**
+            | 2.2 - Update `cuks` table entry
+            +-----------------------------------------------------------------------------------------------------------*/
+            $cuk_record->user_id = $regusr_account_record->id;
+            $cuk_record->save();
+
+            /**
+            | 2.3 - Create `referrals` table entries
+            +-----------------------------------------------------------------------------------------------------------*/
+            #> Reference database objects.
+            $guardian_lvl_1_record = null;
+            $guardian_lvl_2_record = null;
+            $guardian_lvl_3_record = null;
+
+            if($guardian_account_record)
+            {
+                $guardian_lvl_1_record = $guardian_account_record;
+
+                # Level 1 - Referral entry
+                $referral_1_entry = new \App\Referral;
+                $referral_1_entry->user_id = $guardian_lvl_1_record->id;
+                $referral_1_entry->user_reg_id = $regusr_account_record->id;
+                $referral_1_entry->type = 'ref_1';
+                $referral_1_entry->save();
+
+                $guardian_lvl_2_record = \App\User::where('id', $guardian_lvl_1_record->regref_id)->first();
+                if($guardian_lvl_2_record)
+                {
+                    // Level 2 - Referral entry.
+                    $referral_2_entry = new \App\Referral;
+                    $referral_2_entry->user_id = $guardian_lvl_2_record->id;
+                    $referral_2_entry->user_reg_id = $regusr_account_record->id;
+                    $referral_2_entry->type = 'ref_2';
+                    $referral_2_entry->save();
+
+                    $guardian_lvl_3_record = \App\User::where('id', $guardian_lvl_2_record->regref_id)->first();
+                    if($guardian_lvl_3_record)
+                    {
+                        // Level 3 - Referral entry.
+                        $referral_3_entry = new \App\Referral;
+                        $referral_3_entry->user_id = $guardian_lvl_3_record->id;
+                        $referral_3_entry->user_reg_id = $regusr_account_record->id;
+                        $referral_3_entry->type = 'ref_3';
+                        $referral_3_entry->save();
+                    }
                 }
             }
 
-            if($parent_chamber_location)
+            /**
+            | 2.4- Create `transactions` table entries & update `users` table earnings
+            +-----------------------------------------------------------------------------------------------------------*/
+            /* Transactions entries for referral earnings.
+                +---------------------------------------------------------------------------------------------+
+                | ref_1 - Earn from level 1 (direct) referrals.                                               |
+                | ref_2 - Earn from level 2 (direct of downline) referrals.                                   |
+                | ref_3 - Earn from level 3 (downline of downline's direct) referrals.                        |
+                +---------------------------------------------------------------------------------------------+
+            */
+            if($guardian_lvl_1_record)
             {
-                #3a.1.2 - Extract safe of parent based on its chamber location.
-                $parent_safe = Helpers::getSafeMap($parent_chamber_location);
+                # Earnings reference.
+                $earning_ref = config('general.earning_ref');
 
-                #3a.2 - Create chamber placement for the newly registered user.
+                # Level 1 - Referral earnings transaction
+                $ref_1_transaction_entry = new \App\Transaction;
+                $ref_1_transaction_entry->user_id = $guardian_lvl_1_record->id;
+                $ref_1_transaction_entry->kta_amt = $earning_ref[1];
+                $ref_1_transaction_entry->code = 'ref_1';
+                $ref_1_transaction_entry->ref = $referral_1_entry->id;
+                $ref_1_transaction_entry->type = 'cr';
+                $ref_1_transaction_entry->complete = 1;
+                $ref_1_transaction_entry->save();
+
+                # Level 1 - Update Guardian's balance
+                $guardian_lvl_1_record->balance += $earning_ref[1];
+                $guardian_lvl_1_record->save();
+
+                if($guardian_lvl_2_record)
+                {
+                    // Level 2 - Referral earnings transaction
+                    $ref_3_transaction_entry = new \App\Transaction;
+                    $ref_3_transaction_entry->user_id = $guardian_lvl_2_record->id;
+                    $ref_3_transaction_entry->kta_amt = $earning_ref[2];
+                    $ref_3_transaction_entry->code = 'ref_2';
+                    $ref_3_transaction_entry->ref = $referral_1_entry->id;
+                    $ref_3_transaction_entry->type = 'cr';
+                    $ref_3_transaction_entry->complete = 1;
+                    $ref_3_transaction_entry->save();
+
+                    # Level 2 - Update Guardian's balance
+                    $guardian_lvl_2_record->balance += $earning_ref[2];
+                    $guardian_lvl_2_record->save();
+
+                    $guardian_lvl_3_record = \App\User::where('id', $guardian_lvl_2_record->regref_id)->first();
+                    if($guardian_lvl_3_record)
+                    {
+                        # Level 3 - Referral earnings transaction
+                        $ref_3_transaction_entry = new \App\Transaction;
+                        $ref_3_transaction_entry->user_id = $guardian_lvl_3_record->id;
+                        $ref_3_transaction_entry->kta_amt = $earning_ref[3];
+                        $ref_3_transaction_entry->code = 'ref_3';
+                        $ref_3_transaction_entry->ref = $referral_1_entry->id;
+                        $ref_3_transaction_entry->type = 'cr';
+                        $ref_3_transaction_entry->complete = 1;
+                        $ref_3_transaction_entry->save();
+
+                        # Level 3 - Update Guardian's balance
+                        $guardian_lvl_3_record->balance += $earning_ref[3];
+                        $guardian_lvl_3_record->save();
+                    }
+                }
+            }
+
+            /**
+            | 2.5 - Create `chambers` table entry
+            +-----------------------------------------------------------------------------------------------------------*/
+            # 2.5a - Make registering user's chamber entry based on upline's chamber record.
+            if($upline_chamber_record)
+            {
+                # Extract a mapped data of upline's Safe based on its chamber location.
+                /* Mapped data format.
+                    +------------------------------------------------+
+                    |   [                                            |
+                    |       'bse' => [                               |
+                    |           'location' => '2.3.2',               |
+                    |           'data' => [                          |
+                    |               'id' => 58,                      |
+                    |               'level' => 2,                    |
+                    |               'user_id' => 34,                 |
+                    |               'completed' => 1,                |
+                    |               'unlock_method' => reg,          |
+                    |               '...' => ...                     |
+                    |           ]                                    |
+                    |       ],                                       |
+                    |       'lft' => [                               |
+                    |           'location' => '2.4.3',               |
+                    |           'data' => null                       |
+                    |       ],                                       |
+                    |       '...' => ...                             |
+                    |   ]                                            |
+                    +------------------------------------------------+
+                */
+                $upline_safe_map = Helpers::getSafeMap($upline_chamber_record->location);
+
+                # Create chamber placement for the newly registered user.
                 #> Reference variables.
                 $chamber_unlocked_location = null;
                 $safe_position = null;
 
-                #3a.2.1 - Get the location and position of first empty chamber in parent safe.
-                foreach($parent_safe as $position => $chamber)
+                # Get the location and position of first empty chamber in upline safe.
+                foreach($upline_safe_map as $position => $chamber)
                 {
                     if($chamber['data'] === null)
                     {
@@ -350,45 +373,47 @@ class AccountController extends Controller
                     }
                 }
 
-                #3a.2.2 - Create new chamber entry for the user based on location found.
+                # Create new chamber entry for the user based on location found.
                 $reg_user_chamber = new \App\Chamber;
                 $reg_user_chamber->level = 1;
-                $reg_user_chamber->user_id = $account->id;
+                $reg_user_chamber->user_id = $regusr_account_record->id;
                 $reg_user_chamber->completed = 1;
                 $reg_user_chamber->location = $chamber_unlocked_location;
                 $reg_user_chamber->unlock_method = 'reg';
                 $reg_user_chamber->save();
 
-                #3a.2.3 - Emit a chamber creation event.
-                event(new \App\Events\ChamberCreatedEvent($chamber_unlocked_location,$safe_position));
+                # Set a chamber creation event to be emited.
+                $chamber_created = [ 'location'=>$chamber_unlocked_location, 'user_id'=>$regusr_account_record->id ];
             }
+            # 2.5b - Make chamber entry for genesis account (no existing upline record found).
             else
             {
-                app('log')->warning("No 'parent_chamber_location' for 'user_id' {$account->id}");
+                $reg_user_chamber = new \App\Chamber;
+                $reg_user_chamber->level = 1;
+                $reg_user_chamber->user_id = $regusr_account_record->id;
+                $reg_user_chamber->completed = 1;
+                $reg_user_chamber->location = '1.1.1';
+                $reg_user_chamber->unlock_method = 'reg';
+                $reg_user_chamber->save();
+
+                # Set a chamber creation event to be emited.
+                $chamber_created = [ 'location'=>'1.1.1', 'user_id'=>$regusr_account_record->id ];
             }
+            $success = ["message" => "New account created.", "data" => $regusr_account_record];
+        }, 5);
+
+        if($success)
+        {
+            if($chamber_created)
+            {
+                event(new \App\Events\ChamberCreatedEvent($chamber_created['location'],$chamber_created['user_id']));
+            }
+            return response()->json($success, 200);
         }
-        #3b - Make chamber entry for genesis account (no existing upline found).
         else
         {
-            #3b.1 - Create new chamber entry for the user.
-            $reg_user_chamber = new \App\Chamber;
-            $reg_user_chamber->level = 1;
-            $reg_user_chamber->user_id = $account->id;
-            $reg_user_chamber->completed = 1;
-            $reg_user_chamber->location = '1.1.1';
-            $reg_user_chamber->unlock_method = 'reg';
-            $reg_user_chamber->save();
+            return app('api_error')->serverError(null,'Failed to register user.');
         }
-
-        /**
-         4 - Final Output
-        */
-        $success = [
-            "message" => "New account created.",
-            "data" => $account,
-        ];
-
-        return response()->json($success, 200);
     }
 
     public function authVerify(Request $request, Google2FA $google2fa, PlainTea $PlainTea)
