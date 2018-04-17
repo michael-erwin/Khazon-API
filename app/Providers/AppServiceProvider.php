@@ -16,5 +16,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton('api_error', function() {
             return new \App\Exceptions\APIError;
         });
+        // $this->app->alias('bugsnag.multi', \Illuminate\Contracts\Logging\Log::class);
+        // $this->app->alias('bugsnag.multi', \Psr\Log\LoggerInterface::class);
     }
 }
