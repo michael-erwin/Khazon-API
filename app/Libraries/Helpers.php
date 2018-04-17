@@ -5,6 +5,29 @@ namespace App\Libraries;
 class Helpers
 {
     /**
+     * Get user's computed balance.
+     * 
+     * @param  int         $id
+     * @return string|bool
+     */
+    public static function getComputedBalance(int $id)
+    {
+        if(!$id) return [];
+        $result = app('db')->table('transactions')
+                  ->selectRaw('
+                    SUM(CASE WHEN `type`=\'cr\' THEN `kta_amt` ELSE 0 END) AS `credit`,
+                    SUM(CASE WHEN `type`=\'dr\' THEN `kta_amt` ELSE 0 END) AS `debit`
+                  ')->where([
+                      ['complete','=',1], ['user_id','=',$id]
+                  ])->first();
+        return [
+            'credit'    => $result->credit,
+            'debit'     => $result->debit,
+            'remaining' => round((float) $result->credit - (float) $result->debit, 6)
+        ];
+    }
+
+    /**
      * Generate Chamber Unlocking Key (CUK)
      * 
      * @param   int          $count
@@ -123,17 +146,11 @@ class Helpers
         # Layer 1 defaults.
         $safe['bse']['location'] = $location;
         # Get layer 2 locations.
-        $layer_2l = [
-            'max_row' => $bse_row + 1,
-            'max_col' => $bse_col * 2
-        ];
+        $layer_2l = ['max_row' => $bse_row + 1, 'max_col' => $bse_col * 2];
         $safe['lft']['location'] = $bse_lvl.'.'.$layer_2l['max_row'].'.'.($layer_2l['max_col'] - 1);
         $safe['rgt']['location'] = $bse_lvl.'.'.$layer_2l['max_row'].'.'.$layer_2l['max_col'];
         # Get layer 3 locations.
-        $layer_3l = [
-            'max_row' => $bse_row + 2,
-            'max_col' => ($bse_col * 2) * 2
-        ];
+        $layer_3l = ['max_row' => $bse_row + 2, 'max_col' => ($bse_col * 2) * 2];
         $safe['llt']['location'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 3);
         $safe['lmd']['location'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 2);
         $safe['rmd']['location'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 1);
@@ -152,6 +169,198 @@ class Helpers
         }
 
         return $safe;
+    }
+
+    /**
+     * Extract safe mappings with chamber and user data.
+     * 
+     * @param   string  $location  Base of safe (bse) as dotted numeric notation as (level).(row).(col).
+     * @return  array   Array containing keys as positions bse,llt etc. and value as array containing
+     *                  keys 'location', 'chamber', and 'user' containing values relevant to safe.
+     */
+    public static function getSafeMapAll(string $location)
+    {
+        # Define safe object.
+        $safe = [
+            'bse' => ['location'=>null,'chamber'=>null,'user'=>null],
+            'lft' => ['location'=>null,'chamber'=>null,'user'=>null],
+            'rgt' => ['location'=>null,'chamber'=>null,'user'=>null],
+            'llt' => ['location'=>null,'chamber'=>null,'user'=>null],
+            'lmd' => ['location'=>null,'chamber'=>null,'user'=>null],
+            'rmd' => ['location'=>null,'chamber'=>null,'user'=>null],
+            'rlt' => ['location'=>null,'chamber'=>null,'user'=>null]
+        ];
+        # Get base row and column.
+        $coords = explode('.',$location);
+        $bse_lvl = $coords[0];
+        $bse_row = $coords[1];
+        $bse_col = $coords[2];
+        # Layer 1 defaults.
+        $safe['bse']['location'] = $location;
+        # Get layer 2 locations.
+        $layer_2l = ['max_row' => $bse_row + 1, 'max_col' => $bse_col * 2];
+        $safe['lft']['location'] = $bse_lvl.'.'.$layer_2l['max_row'].'.'.($layer_2l['max_col'] - 1);
+        $safe['rgt']['location'] = $bse_lvl.'.'.$layer_2l['max_row'].'.'.$layer_2l['max_col'];
+        # Get layer 3 locations.
+        $layer_3l = ['max_row' => $bse_row + 2, 'max_col' => ($bse_col * 2) * 2];
+        $safe['llt']['location'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 3);
+        $safe['lmd']['location'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 2);
+        $safe['rmd']['location'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 1);
+        $safe['rlt']['location'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.$layer_3l['max_col'];
+        # Build items query.
+        $locations = [];
+        foreach($safe as $chamber) $locations[] = $chamber['location'];
+        # Get chambers data from database.
+        $chambers = app('db')
+            ->table('chambers')
+            ->join('users','users.id','=','chambers.user_id')
+            ->select([
+                'chambers.id as chamber_id',
+                'chambers.level as chamber_level',
+                'chambers.location as chamber_location',
+                'chambers.completed as chamber_completed',
+                'chambers.unlock_method as chamber_unlock_method',
+                'chambers.created_at as chamber_created_at',
+                'chambers.updated_at as chamber_updated_at',
+                'users.id as user_id',
+                'users.name as user_name',
+                'users.email as user_email',
+                'users.address as user_address',
+                'users.created_at as user_created_at',
+                'users.updated_at as user_updated_at'])
+            ->whereIn('chambers.location', $locations)
+            ->get();
+        foreach($chambers as $chamber)
+        {
+            foreach($safe as $position => $safe_chamber)
+            {
+                if($safe_chamber['location'] == $chamber->chamber_location)
+                {
+                    $safe[$position]['chamber'] = [
+                        'id' => $chamber->chamber_id,
+                        'level' => $chamber->chamber_level,
+                        'completed' => $chamber->chamber_completed,
+                        'unlock_method' => $chamber->chamber_unlock_method,
+                        'created_at' => $chamber->chamber_updated_at,
+                        'updated_at' => $chamber->chamber_updated_at
+                    ];
+                    $safe[$position]['user'] = [
+                        'id' => $chamber->user_id,
+                        'name' => $chamber->user_name,
+                        'email' => $chamber->user_email,
+                        'address' => $chamber->user_address,
+                        'created_at' => $chamber->user_updated_at,
+                        'updated_at' => $chamber->user_updated_at
+                    ];
+                }
+            }
+        }
+
+        return $safe;
+    }
+
+    /**
+     * Extract safe positional mappings to location coordinates.
+     * 
+     * @param   string  $location  Base of safe (bse) as dotted numeric notation as (level).(row).(col).
+     * @return  array   Array containing keys as positions bse,llt etc. and value as string location.
+     */
+    public static function getSafeCoords(string $location)
+    {
+        # Define safe object.
+        $safe = [];
+        # Get base row and column.
+        $coords = explode('.',$location);
+        $bse_lvl = $coords[0];
+        $bse_row = $coords[1];
+        $bse_col = $coords[2];
+        # Layer 1 defaults.
+        $safe['bse'] = $location;
+        # Get layer 2 locations.
+        $layer_2l = ['max_row' => $bse_row + 1, 'max_col' => $bse_col * 2];
+        $safe['lft'] = $bse_lvl.'.'.$layer_2l['max_row'].'.'.($layer_2l['max_col'] - 1);
+        $safe['rgt'] = $bse_lvl.'.'.$layer_2l['max_row'].'.'.$layer_2l['max_col'];
+        # Get layer 3 locations.
+        $layer_3l = ['max_row' => $bse_row + 2, 'max_col' => ($bse_col * 2) * 2];
+        $safe['llt'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 3);
+        $safe['lmd'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 2);
+        $safe['rmd'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.($layer_3l['max_col'] - 1);
+        $safe['rlt'] = $bse_lvl.'.'.$layer_3l['max_row'].'.'.$layer_3l['max_col'];
+        return $safe;
+    }
+
+    /**
+     * Get data all relevant data associated to lower chamber of given location.
+     * 
+     * @param   string  $location  Dotted numeric notation as (level).(row).(col).
+     * @return  string  Array containing keys 'location' and 'user' and their respective values.
+     */
+    public static function getLowerChamber($location)
+    {
+        #> Reference variables.
+        $coords = explode('.',$location);
+        $lvl = $coords[0];
+        $row = $coords[1];
+        $col = $coords[2];
+        $base_location = null;
+
+        if($row > 1)
+        {
+            #1 - Determine chamber position relative to safe as left(odd) or right(even).
+            $remainder = $col % 2;
+
+            #2 - Extract base location.
+            $new_row = $row - 1;
+            #2.1a - Location for odd.
+            if($remainder > 0)
+            {
+                $new_col = ($col + 1) / 2;
+                $base_location = $lvl.'.'.$new_row.'.'.$new_col;
+            }
+            #2.1b - Location for even.
+            else
+            {
+                $new_col = $col / 2;
+                $base_location = $lvl.'.'.$new_row.'.'.$new_col;
+            }
+            $data = ['location'=>$base_location,'user'=>null];
+            $info = app('db')
+                ->table('chambers')
+                ->join('users','users.id','=','chambers.user_id')
+                ->select([
+                    'chambers.id as chamber_id',
+                    'chambers.level as chamber_level',
+                    'chambers.location as chamber_location',
+                    'chambers.completed as chamber_completed',
+                    'chambers.unlock_method as chamber_unlock_method',
+                    'chambers.created_at as chamber_created_at',
+                    'chambers.updated_at as chamber_updated_at',
+                    'users.id as user_id',
+                    'users.name as user_name',
+                    'users.email as user_email',
+                    'users.address as user_address',
+                    'users.created_at as user_created_at',
+                    'users.updated_at as user_updated_at'])
+                ->where([['chambers.location','=', $base_location]])
+                ->first();
+            $data['chamber'] = [
+                'id' => $info->chamber_id,
+                'level' => $info->chamber_level,
+                'completed' => $info->chamber_completed,
+                'unlock_method' => $info->chamber_unlock_method,
+                'created_at' => $info->chamber_updated_at,
+                'updated_at' => $info->chamber_updated_at
+            ];
+            $data['user'] = [
+                'id' => $info->user_id,
+                'name' => $info->user_name,
+                'email' => $info->user_email,
+                'address' => $info->user_address,
+                'created_at' => $info->user_created_at,
+                'updated_at' => $info->user_updated_at
+            ];
+            return $data;
+        } else { return false; }
     }
 
     /**
@@ -189,7 +398,7 @@ class Helpers
                 $base_location = $lvl.'.'.$new_row.'.'.$new_col;
             }
             return $base_location;
-        } else {return false; }
+        } else { return false; }
     }
     /**
      * Get coordinate location of base (layer 1 of safe).
