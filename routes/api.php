@@ -1,5 +1,8 @@
 <?php
 
+$router->get('/ping', function() {
+    return response()->json(['message'=>'pong'], 200);
+});
 $router->group(['prefix'=>'v1'], function() use($router) {
     /**
      * FRONT END
