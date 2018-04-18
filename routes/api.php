@@ -1,14 +1,12 @@
 <?php
 
-$router->get('/ping', function() {
-    return response()->json(['message'=>'pong'], 200);
-});
 $router->group(['prefix'=>'v1'], function() use($router) {
     /**
      * FRONT END
      */
 
     # Account
+    $router->get('/ping', function() {return response()->json(['message'=>'pong'], 200);});
     $router->get('/account','AccountController@index');
     $router->get('/account/recover','AccountController@recoverNewRequest');
     $router->get('/account/recover/{token:[a-zA-Z0-9_\-\+=]+\.[a-zA-Z0-9_\-\+=]+\.[a-zA-Z0-9_\-\+=]+}','AccountController@verifyResetToken');
