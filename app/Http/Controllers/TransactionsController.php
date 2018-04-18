@@ -195,6 +195,7 @@ class TransactionsController extends Controller
                     ->select([
                         'transactions.id',
                         'transactions.user_id',
+                        'transactions.ref',
                         'transactions.complete',
                         'transactions.kta_amt',
                         'transactions.type',
