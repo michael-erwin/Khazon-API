@@ -19,8 +19,16 @@ class CreateTableTransactions extends Migration
             $table->unsignedInteger('user_id');
             $table->string('ref')->default('');
             $table->enum('type', ['cr','dr']);
-            $table->enum('code', ['ref_1','ref_2','ref_3','safe','withdraw']);
+            $table->enum('code', [
+                'ref_1',
+                'ref_2',
+                'ref_3',
+                'safe',
+                'withdraw',
+                'transfer'
+            ]);
             $table->boolean('complete')->default(0);
+            $table->boolean('locked')->default(0);
             $table->timestamps();
         });
     }
