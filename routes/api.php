@@ -1,5 +1,6 @@
 <?php
 
+$router->get('/', function() {return "";});
 $router->group(['prefix'=>'v1'], function() use($router) {
     /**
      * FRONT END
@@ -19,9 +20,11 @@ $router->group(['prefix'=>'v1'], function() use($router) {
     $router->put('/account','AccountController@update');
 
     # Transactions
-    $router->get('/transactions/account','TransactionsController@account');
-    $router->post('/transactions/withdraw','TransactionsController@withdraw');
-    $router->post('/transactions/cancel','TransactionsController@cancel');
+    $router->get('/transactions/my_account/items','TransactionsController@showListFromMyAccount');
+    $router->get('/transactions/transfer/{id:[0-9]+}','TransactionsController@showTransferItem');
+    $router->post('/transactions/my_account/transfer','TransactionsController@transferFromMyAccount');
+    $router->post('/transactions/my_account/withdraw','TransactionsController@withdrawFromMyAccount');
+    $router->delete('/transactions/my_account/items/{id:[0-9]+}','TransactionsController@deleteFromMyAccount');
 
     # Referrals
     $router->get('/referrals/user','ReferralsController@readMine');
@@ -65,7 +68,9 @@ $router->group(['prefix'=>'v1'], function() use($router) {
 
     # Transactions
     $router->get('/transactions','TransactionsController@index');
-    $router->get('/transactions/payables','TransactionsController@payables');
-    $router->post('/transactions/pay','TransactionsController@pay');
+    $router->get('/transactions/{id:[0-9]+}','TransactionsController@show');
+    $router->get('/transactions/user/{identifier}','TransactionsController@showByUser');
+    $router->post('/transactions/pay/{id:[0-9]+}','TransactionsController@payUser');
+    $router->put('/transactions/{id:[0-9]+}','TransactionsController@update');
 
 });
