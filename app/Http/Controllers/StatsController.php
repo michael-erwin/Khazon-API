@@ -37,9 +37,9 @@ class StatsController extends Controller
         # Get stats data.
         $user_count = \App\User::count();
         $kta_payables = app('db')->table('transactions')->selectRaw('SUM(kta_amt) as total')
-                        ->where([['complete','<',1], ['type','=','dr']])->first();
+                        ->where([['complete','<',1], ['code','=','withdraw']])->first();
         $kta_paid = app('db')->table('transactions')->selectRaw('SUM(kta_amt) as total')
-                        ->where([['complete','=',1], ['type','=','dr']])->first();
+                        ->where([['complete','=',1], ['code','=','withdraw']])->first();
 
         # Stats data output format.
         $data = [
