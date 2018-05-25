@@ -17,9 +17,7 @@ class UtilsController extends Controller
     { return ''; }
 
     public function temp(Request $request)
-    {
-        app('log')->info('Daily log test.');
-    }
+    { }
 
     public function phpInfo()
     { echo phpinfo(); }
