@@ -47,15 +47,20 @@ class FundTransferListener
         {
             $email_list = explode(',', config('general.alert_to_emails'));
             $valid_emails = [];
+            $valid_emails_count = 0;
             
             // Validate emails from config.
             foreach ($email_list as $email)
             {
-                if (filter_var($email, FILTER_VALIDATE_EMAIL)) $valid_emails [] = $email;
+                if (filter_var($email, FILTER_VALIDATE_EMAIL))
+                {
+                    $valid_emails[] = $email;
+                    $valid_emails_count++;
+                }
             }
 
             // Send if valid email is found.
-            if (count($valid_emails) > 0)
+            if ($valid_emails_count > 0)
             {
                 $content = $this->getMessage($event);
                 $this->send($valid_emails, $content, 'sendpulse');
