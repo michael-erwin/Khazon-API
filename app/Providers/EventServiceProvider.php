@@ -24,5 +24,8 @@ class EventServiceProvider extends ServiceProvider
         'App\Events\EmailVerifyEvent' => [
             'App\Listeners\EmailVerifyListener',
         ],
+        'App\Events\FundTransferEvent' => [
+            'App\Listeners\FundTransferListener',
+        ],
     ];
 }
