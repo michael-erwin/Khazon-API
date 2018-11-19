@@ -16,5 +16,5 @@ return [
         7 => 1000,
     ],
     'alert_kta_transfer' => env('ALERT_KTA_TRANSFER', 1.5),
-    'alert_to_emails' => env('ALERT_TO_EMAAILS', '')
+    'alert_to_emails' => env('ALERT_TO_EMAILS', '')
 ];
