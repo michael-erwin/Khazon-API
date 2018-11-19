@@ -21,7 +21,7 @@ class AuthServiceProvider extends ServiceProvider
     /**
      * Boot the authentication services for the application.
      *
-     * @return void
+     * @return \App\User | null
      */
     public function boot()
     {
