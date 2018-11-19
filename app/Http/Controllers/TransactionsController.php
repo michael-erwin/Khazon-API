@@ -157,29 +157,37 @@ class TransactionsController extends Controller
             {
                 $field_errors['address'][] = 'Does not exist';
             }
+            elseif(!$receiver->active) {
+                $field_errors['address'][] = 'User is inactive';
+            }
             else
             {
                 $sender = app('auth')->user();
                 $pending = \App\Transaction::where([['user_id','=',$sender->id],['complete','=','0']])->first();
                 if($pending) return app('api_error')->invalidInput(null, 'Pending request not yet settled');
-                if($address == $sender->address) $field_errors['address'][] = 'Own address not allowed';
-                if(!is_numeric($amount))
+                if($address === $sender->address) $field_errors['address'][] = 'Own address not allowed';
+                if(!preg_match('/^\d*(\.\d+)?$/', $amount))
                 {
-                    $field_errors['amount'][] = 'Not a number.';
+                    $field_errors['amount'][] = 'Format not supported.';
                 }
                 elseif($amount > (float) $sender->balance)
                 {
                     $field_errors['amount'][] = 'Insuficient funds.';
                 }
+                else {
+                    $amount = number_format($amount, 8);
+                }
             }
         }
-        
+
+        // Return errors found.
         if(count($field_errors) > 0) return app('api_error')->invalidInput($field_errors);
 
+        //*
         app('db')->transaction(function() use(&$sender,&$receiver,$amount,&$txn_success) {
-            $sender->balance -= $amount;
+            $sender->balance = number_format(($sender->balance - $amount), 8);
             $sender->save();
-            $receiver->balance += $amount;
+            $receiver->balance = number_format(($receiver->balance + $amount), 8);
             $receiver->save();
 
             $sender_tx = new \App\Transaction;
@@ -202,10 +210,24 @@ class TransactionsController extends Controller
 
             $txn_success = true;
         }, 5);
+        //*/
+
+        $txn_success = true;
 
         if($txn_success)
         {
-            return response()->json(['code'=>'SUCCESS','message'=>'Success']);
+            // Fire fund transfer event.
+            event(new \App\Events\FundTransferEvent($sender, $receiver, $amount));
+        
+            // Return a response.
+            return response()->json([
+                'code' => 'SUCCESS',
+                'message' => 'Success',
+                'data' => [
+                    'amount' => $amount,
+                    'address' => $address
+                ]
+            ]);
         }
         else
         {
