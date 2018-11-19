@@ -29,8 +29,12 @@ class JWTAuthMiddleware
         // Prevent unauthenticated request.
         if (app('auth')->guard('api')->guest()) return app('api_error')->unauthorized();
 
+        // Prevent inactive user.
+        $user = app('auth')->user();
+        if (!$user->active) return app('api_error')->unauthorized(null, 'User account is inactive.');
+
         // Impose 2FA if present.
-        $jwt_claims = config('jwt.claims');
+        $jwt_claims = config('jwt.claims'); // config on-the-fly from AuthServiceProvider
         if(isset($jwt_claims->otp)) return app('api_error')->locked(null,'OTP is required.');
 
         // Automatically issue new token as "Access-Token" header when
