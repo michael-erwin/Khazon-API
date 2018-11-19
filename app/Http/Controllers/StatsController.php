@@ -21,7 +21,7 @@ class StatsController extends Controller
         $data = [
             'total_safes' => $safes,
             'total_referrals' => $referrals,
-            'total_rewards' => $earnings
+            'total_rewards' => number_format($earnings, 6)
         ];
 
         // Response
