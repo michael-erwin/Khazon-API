@@ -65,13 +65,21 @@ class AccountController extends Controller
         $user = Account::where('email',$inputs['email'])->first();
         if(!$user) $errors['email'] = ['Does not exist'];
 
-        // Authenticate credentials.
         if($user)
         {
-            $authentic = app('hash')->check($inputs['password'],$user->password);
-            if(!$authentic) $errors['password'] = ['Incorrect'];
+            // Check credentials
+            $authentic = app('hash')->check($inputs['password'], $user->password);
+            if(!$authentic) 
+            {
+                $errors['password'] = ['Incorrect'];
+            }
+            else
+            {
+                // Require user to be active.
+                if(!$user->active) $errors['email'] = ['Account is inactive'];
+            }
         }
-        
+
         // Check for errors
         if(count($errors) > 0) return app('api_error')->unauthorized($errors,"Authentication failed");
 
