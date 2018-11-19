@@ -56,10 +56,7 @@ $router->group(['prefix'=>'v1'], function() use($router) {
 
     # Users
     $router->get('/users','UsersController@index');
-    $router->get('/users/generate','UsersController@generate');
-    $router->post('/users','UsersController@create');
-    $router->put('/users/{id}','UsersController@update');
-    $router->delete('/users/{id}','UsersController@delete');
+    $router->put('/users/{id:[0-9]+}','UsersController@update');
 
     # CUK
     $router->get('/cuks','CuksController@index');
