@@ -67,7 +67,7 @@ class Handler extends ExceptionHandler
             //     return app('api_error')->serverError(null,"Failed to update database.");
             //     break;
             default:
-                return (env('APP_ENV') == 'local')? parent::render($request, $e) : app('api_error')->badRequest();
+                return (env('APP_ENV') == 'development')? parent::render($request, $e) : app('api_error')->badRequest();
         }
     }
 }
