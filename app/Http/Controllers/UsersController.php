@@ -171,6 +171,44 @@ class UsersController extends Controller
         return response()->json([ 'status' => 'SUCCESS', 'data' => $user ]);
     }
 
+    public function getTransactions(Request $request, $id)
+    {
+        // Restrict access.
+        $restricted = Helpers::restrictAccess(['all','users_r']);
+        if($restricted) return $restricted;
+
+        // Deny if user does not exist.
+        $user = User::find($id);
+        if (!$user) return app('api_error')->notFound();
+
+        // Filter options
+        $filters_allowed = ['ref', 'type', 'code', 'complete', 'locked'];
+        $input_filter_name = trim($request->input('filter_name'));
+        $input_filter_value = trim($request->input('filter_value'));
+
+        // Paging options
+        $limit = $request->input('per_page', 15);
+        if ($limit > 500) $limit = 500; // Maximum rows limit to 500 per request.
+
+        // Build query
+        $where = function($query) use($user, $input_filter_name, $input_filter_value, $filters_allowed)
+        {
+            $query->where('user_id', $user->id);
+            if (in_array($input_filter_name, $filters_allowed))
+            {
+                $query->where($input_filter_name, $input_filter_value);
+            }
+        };
+
+        // Process result
+        $transactions = \App\Transaction::where($where)->orderBy('created_at', 'desc')->paginate($limit);
+        $user_data = collect(['user' => $user]);
+        $response = $user_data->merge($transactions);
+
+        // Response
+        return response()->json($response);
+    }
+
     private function getSearchFieldName($keyword) {
         $field_name = 'name';
         if (preg_match('/^0x[a-f0-9]{40}/i', $keyword))

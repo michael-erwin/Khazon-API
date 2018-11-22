@@ -56,6 +56,7 @@ $router->group(['prefix'=>'v1'], function() use($router) {
 
     # Users
     $router->get('/users','UsersController@index');
+    $router->get('/users/{id:[0-9]+}/transactions','UsersController@getTransactions');
     $router->put('/users/{id:[0-9]+}','UsersController@update');
 
     # CUK
