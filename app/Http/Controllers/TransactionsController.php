@@ -39,7 +39,7 @@ class TransactionsController extends Controller
             'id' => $item->id,
             'sender' => null,
             'recipient' => null,
-            'amount' => $item->kta_amt,
+            'amount' => number_format($item->kta_amt, 8),
             'created_at' => $item->created_at
         ];
     
