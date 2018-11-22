@@ -13,7 +13,7 @@ class TransactionsController extends Controller
 
     public function __construct()
     {
-        $this->middleware('auth');
+        $this->middleware('auth', ['except' => ['showTransferItem']]);
     }
 
     /**
@@ -29,39 +29,28 @@ class TransactionsController extends Controller
      */
     public function showTransferItem(Request $request, $id)
     {
-        $item = app('db')->table('transactions')
-                ->join('users', 'transactions.user_id', '=', 'users.id')
-                ->select([
-                    'transactions.kta_amt',
-                    'transactions.type',
-                    'transactions.ref',
-                    'transactions.created_at',
-                    'users.address'])
-                ->where([
-                    ['transactions.id','=',$id],
-                    ['transactions.code','=','transfer']])
-                ->first();
-        if(!$item) return app('api_error')->notFound();
-        
-        $ref = \App\User::where('id','=',$item->ref)->select(['address'])->first();
-        if(!$ref) return app('api_error')->serverError();
+        $item = \App\Transaction::where([ ['id',$id], ['code','transfer'] ])->first();
 
+        // Deny if item does not exist.
+        if (!$item) return app('api_error')->notFound();
+
+        // Format response data.
         $response = [
+            'id' => $item->id,
             'sender' => null,
-            'receiver' => null,
+            'recipient' => null,
             'amount' => $item->kta_amt,
             'created_at' => $item->created_at
         ];
-
-        if($item->type == "dr")
+    
+        // Query related users.
+        $user_roles = [ $item->user_id => 'sender', $item->ref => 'recipient'];
+        $users = \App\User::whereIn('id', [ $item->user_id, $item->ref ])->get();
+    
+        foreach($users as $user)
         {
-            $response['sender'] = $item->address;
-            $response['receiver'] = $ref->address; 
-        }
-        else
-        {
-            $response['sender'] = $ref->address;
-            $response['receiver'] = $item->address;
+            $user_role = $user_roles[$user->id];
+            $response[$user_role] = $user;
         }
 
         // Response
