@@ -44,17 +44,23 @@ class TransactionsController extends Controller
         ];
     
         // Query related users.
-        $user_roles = [ $item->user_id => 'sender', $item->ref => 'recipient'];
-        $users = \App\User::whereIn('id', [ $item->user_id, $item->ref ])->get();
+        $sender_id = $item->user_id;
+        $recipient_id = $item->ref;
+        $user_ids = [ $sender_id, $recipient_id ];
+        $user_roles = [];
+        $user_roles[$sender_id] = 'sender';
+        $user_roles[$recipient_id] = 'recipient';
+
+        $users = \App\User::whereIn('id', $user_ids)->get();
     
-        foreach($users as $user)
-        {
-            $user_role = $user_roles[$user->id];
-            $response[$user_role] = $user;
-        }
+        // foreach($users as $user)
+        // {
+        //     $user_role = $user_roles[$user->id];
+        //     $response[$user_role] = $user;
+        // }
 
         // Response
-        return response()->json($response);
+        return response()->json($item);
     }
 
     /**
@@ -187,7 +193,7 @@ class TransactionsController extends Controller
             $sender_tx->complete = 1;
             $sender_tx->type = 'dr';
             $sender_tx->save();
-            
+
             $receiver_tx = new \App\Transaction;
             $receiver_tx->kta_amt = $amount;
             $receiver_tx->user_id = $receiver->id;

@@ -22,7 +22,7 @@ $router->group(['prefix'=>'v1'], function() use($router) {
     # Transactions
     $router->get('/transactions/my_account/items','TransactionsController@showListFromMyAccount');
     $router->get('/transactions/transfer/{id:[0-9]+}','TransactionsController@showTransferItem');
-    $router->post('/transactions/my_account/transfer','TransactionsController@transferFromMyAccount');
+    // $router->post('/transactions/my_account/transfer','TransactionsController@transferFromMyAccount');
     $router->post('/transactions/my_account/withdraw','TransactionsController@withdrawFromMyAccount');
     $router->delete('/transactions/my_account/items/{id:[0-9]+}','TransactionsController@deleteFromMyAccount');
 
